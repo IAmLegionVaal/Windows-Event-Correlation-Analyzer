@@ -1,0 +1,8 @@
+[CmdletBinding(SupportsShouldProcess=$true)]
+param([string[]]$ServiceName,[switch]$RestartServices,[switch]$ClearWmiErrors,[switch]$RepairSystemFiles,[string]$OutputPath="$env:USERPROFILE\Desktop\EventCorrelationRepair")
+$ErrorActionPreference='Stop';New-Item -ItemType Directory -Path $OutputPath -Force|Out-Null;$Log=Join-Path $OutputPath ("repair-{0:yyyyMMdd-HHmmss}.log"-f(Get-Date));function L($m){"$(Get-Date -Format s) $m"|Tee-Object -FilePath $Log -Append};if(-not($RestartServices-or$ClearWmiErrors-or$RepairSystemFiles)){throw'Choose at least one repair action.'}
+Get-WinEvent -FilterHashtable @{LogName='System';StartTime=(Get-Date).AddHours(-24);Level=1,2,3} -ErrorAction SilentlyContinue|Select TimeCreated,Id,ProviderName,LevelDisplayName,Message|Export-Clixml (Join-Path $OutputPath 'before-events.xml')
+if($RestartServices){if(-not$ServiceName){throw'-ServiceName is required.'};foreach($s in $ServiceName){Get-Service $s -ErrorAction Stop|Out-Null;if($PSCmdlet.ShouldProcess($s,'Restart correlated service')){Restart-Service $s -Force;L"Restarted $s"}}}
+if($ClearWmiErrors-and$PSCmdlet.ShouldProcess('WMI repository','Verify and salvage if inconsistent')){winmgmt /verifyrepository|Tee-Object -FilePath $Log -Append;if($LASTEXITCODE-ne0){winmgmt /salvagerepository|Tee-Object -FilePath $Log -Append};L'WMI repair completed.'}
+if($RepairSystemFiles-and$PSCmdlet.ShouldProcess('Windows image','Run DISM and SFC')){dism /Online /Cleanup-Image /RestoreHealth|Tee-Object -FilePath $Log -Append;sfc /scannow|Tee-Object -FilePath $Log -Append;L'System files repaired.'}
+L'Repair workflow finished.'
